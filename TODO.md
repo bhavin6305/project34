@@ -1,0 +1,2 @@
+- [x] Comment out the problematic registerViewFactory call in the Agora package file to fix the 'platformViewRegistry' undefined error.
+- [x] Test the Flutter app on web to confirm the error is resolved.
