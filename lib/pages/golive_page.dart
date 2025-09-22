@@ -1,116 +1,100 @@
 // lib/pages/golive_page.dart
-import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:agora_rtc_engine/agora_rtc_engine.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-
-// TODO: move these into secure storage / environment
-const String APP_ID = 'YOUR_AGORA_APP_ID';
-const String TOKEN_SERVER_URL = 'https://your-token-server.example.com/rtcToken'; // ?channel=&uid=
-const String? tempToken = null; // for quick dev - paste a console temp token here
+import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class GoLivePage extends StatefulWidget {
   const GoLivePage({super.key});
+
   @override
   State<GoLivePage> createState() => _GoLivePageState();
 }
 
 class _GoLivePageState extends State<GoLivePage> {
-  late final RtcEngine _engine;
-  bool _localJoined = false;
-  bool _isBroadcasting = false;
-  bool _muted = false;
-  bool _videoMuted = false;
-  final TextEditingController _channelCtl = TextEditingController();
+  static const platform = MethodChannel('com.yourapp.rtmp/control');
+  final TextEditingController _titleController = TextEditingController();
+  bool _isStreaming = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _channelCtl.text = 'stream-${Random().nextInt(9999)}';
-  }
-
-  Future<String?> _getToken(String channel, int uid) async {
-    if (tempToken != null) return tempToken;
-    try {
-      final uri = Uri.parse('$TOKEN_SERVER_URL?channel=$channel&uid=$uid');
-      final r = await http.get(uri);
-      if (r.statusCode == 200) {
-        final json = jsonDecode(r.body);
-        return json['token'] as String?;
-      }
-    } catch (e) {
-      debugPrint('token fetch error: $e');
-    }
-    return null;
-  }
+  // Change this to your local server IP (from ipconfig)
+  static const String serverIp = "172.16.0.148";
 
   Future<void> _startBroadcast() async {
-    final channel = _channelCtl.text.trim();
-    if (channel.isEmpty) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Login required')),
+      );
+      return;
+    }
 
-    // request permissions
-    await [Permission.camera, Permission.microphone].request();
+    final uid = user.uid;
+    final title = _titleController.text.trim();
 
-    // create engine
-    _engine = createAgoraRtcEngine();
-    await _engine.initialize(RtcEngineContext(
-      appId: '1fb058cd86424f7796586523245bfbe0',
-      channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
-    ));
-    _engine.registerEventHandler(
-      RtcEngineEventHandler(
-        onJoinChannelSuccess: (connection, elapsed) {
-          setState(() => _localJoined = true);
-        },
-        onUserJoined: (connection, remoteUid, elapsed) {
-          debugPrint('remote user $remoteUid joined (viewer side)');
-        },
-        onUserOffline: (connection, remoteUid, reason) {
-          debugPrint('remote user $remoteUid left');
-        },
-        onTokenPrivilegeWillExpire: (connection, token) async {
-          // fetch new token
-          final newToken = await _getToken(channel, 0);
-          if (newToken != null) {
-            await _engine.renewToken(newToken);
-          }
-        },
-      ),
-    );
+    // RTMP for publishing
+    final rtmpUrl = "rtmp://$serverIp:1935/live/$uid";
+    // HLS for playback
+    final hlsUrl = "http://$serverIp:8080/hls/$uid.m3u8";
 
-    await _engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
-    await _engine.enableVideo();
-    await _engine.startPreview();
+    // Save metadata to Firestore (store both RTMP + HLS)
+    await FirebaseFirestore.instance.collection('streams').doc(uid).set({
+      'channelId': uid,
+      'title': title.isEmpty ? 'Untitled Stream' : title,
+      'rtmpUrl': rtmpUrl,
+      'hlsUrl': hlsUrl,
+      'streamerId': uid,
+      'streamerName': user.displayName ?? 'Anonymous',
+      'createdAt': FieldValue.serverTimestamp(),
+      'isLive': true,
+    });
 
-    final token = await _getToken(channel, 0); // 0 => let Agora assign uid
-    await _engine.joinChannel(
-      token: '007eJxTYJDcGGNgI+QqaVnKuFBxtr5R38vMvOeWPR/vLjPy6k0rCldgMExLMjC1SE6xMDMxMkkzN7c0M7UwMzUyNjIxTUpLSjUI3bM1oyGQkWGJVAEzIwMEgvhsDCXlmSXJGQwMAILwHTU=',
-      channelId: channel,
-      uid: 0,
-      options: const ChannelMediaOptions(),
-    );
-
-    setState(() => _isBroadcasting = true);
+    try {
+      final res = await platform.invokeMethod('startStream', {
+        'rtmpUrl': rtmpUrl,
+        'streamTitle': title,
+      });
+      if (res == 'ok') {
+        setState(() => _isStreaming = true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Native startStream result: $res')),
+        );
+      }
+    } on PlatformException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Start failed: ${e.message}')),
+      );
+    }
   }
 
   Future<void> _stopBroadcast() async {
-    await _engine.stopPreview();
-    await _engine.leaveChannel();
-    await _engine.release();
-    setState(() {
-      _isBroadcasting = false;
-      _localJoined = false;
-    });
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final uid = user.uid;
+
+    try {
+      final res = await platform.invokeMethod('stopStream');
+      if (res == 'ok') {
+        // update Firestore
+        await FirebaseFirestore.instance.collection('streams').doc(uid).update({
+          'isLive': false,
+        });
+        setState(() => _isStreaming = false);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Native stopStream result: $res')),
+        );
+      }
+    } on PlatformException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Stop failed: ${e.message}')),
+      );
+    }
   }
 
   @override
   void dispose() {
-    if (_isBroadcasting) {
-      _stopBroadcast();
-    }
-    _channelCtl.dispose();
+    _titleController.dispose();
     super.dispose();
   }
 
@@ -123,62 +107,30 @@ class _GoLivePageState extends State<GoLivePage> {
         child: Column(
           children: [
             TextField(
-              controller: _channelCtl,
-              decoration: const InputDecoration(labelText: 'Channel name'),
+              controller: _titleController,
+              decoration: const InputDecoration(labelText: 'Stream title'),
             ),
             const SizedBox(height: 12),
-            if (!_isBroadcasting)
-              ElevatedButton(
-                onPressed: _startBroadcast,
-                child: const Text('Start Broadcast'),
-              )
-            else
-              Column(
-                children: [
-                  SizedBox(
-                    height: 300,
-                    child: _localJoined
-                        ? AgoraVideoView(
-                            controller: VideoViewController(
-                              rtcEngine: _engine,
-                              canvas: const VideoCanvas(uid: 0),
-                            ),
-                          )
-                        : const Center(child: CircularProgressIndicator()),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+            _isStreaming
+                ? Column(
                     children: [
-                      IconButton(
-                        icon: Icon(_muted ? Icons.mic_off : Icons.mic),
-                        onPressed: () async {
-                          _muted = !_muted;
-                          await _engine.muteLocalAudioStream(_muted);
-                          setState(() {});
-                        },
-                      ),
-                      IconButton(
-                        icon:
-                            Icon(_videoMuted ? Icons.videocam_off : Icons.videocam),
-                        onPressed: () async {
-                          _videoMuted = !_videoMuted;
-                          await _engine.muteLocalVideoStream(_videoMuted);
-                          setState(() {});
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.cameraswitch),
-                        onPressed: () => _engine.switchCamera(),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.stop_circle_outlined),
+                      const Text('You are live!'),
+                      const SizedBox(height: 8),
+                      ElevatedButton.icon(
                         onPressed: _stopBroadcast,
+                        icon: const Icon(Icons.stop),
+                        label: const Text('Stop Broadcast'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                        ),
                       ),
                     ],
+                  )
+                : ElevatedButton.icon(
+                    onPressed: _startBroadcast,
+                    icon: const Icon(Icons.videocam),
+                    label: const Text('Start Broadcast'),
                   ),
-                ],
-              ),
           ],
         ),
       ),

@@ -3,9 +3,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-// Default import for mobile/desktop
-import 'dart:ui_web' as ui;
-
+import 'package:firebase_auth/firebase_auth.dart';
 // Firebase config
 import 'firebase_options.dart';
 
@@ -35,9 +33,6 @@ import 'pages/notifications_page.dart';
 import 'pages/followers_page.dart';
 import 'pages/golive_page.dart';
 
-// ❌ REMOVE dart:js shim + registerPlatformViewRegistry()
-// ❌ You don’t need to patch flutterPlatformViewRegistry manually
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
@@ -46,6 +41,27 @@ Future<void> main() async {
   runApp(const FluxLiveApp());
 }
 
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasData) {
+          return const RootPage(); // ✅ Logged in
+        }
+        return const LoginPage(); // ❌ Not logged in
+      },
+    );
+  }
+}
 
 class FluxLiveApp extends StatelessWidget {
   const FluxLiveApp({super.key});
@@ -56,7 +72,7 @@ class FluxLiveApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: "Flux Live",
       theme: ThemeData.dark(),
-      initialRoute: "/splash",
+      home: const AuthGate(),
       onGenerateRoute: (settings) {
         switch (settings.name) {
           case '/splash':
@@ -69,6 +85,11 @@ class FluxLiveApp extends StatelessWidget {
             return MaterialPageRoute(builder: (_) => const RootPage());
           case '/search':
             return MaterialPageRoute(builder: (_) => const SearchPage());
+          case '/searchResults':
+            final args = settings.arguments as Map<String, dynamic>? ?? {};
+            return MaterialPageRoute(
+              builder: (_) => SearchPage(query: args['query'] ?? ''),
+            );
           case '/settings':
             return MaterialPageRoute(builder: (_) => const SettingsPage());
           case '/editProfile':
@@ -80,28 +101,30 @@ class FluxLiveApp extends StatelessWidget {
           case '/goLive':
             return MaterialPageRoute(builder: (_) => const GoLivePage());
           case '/streamPlayer':
-            final args = settings.arguments as Map<String, dynamic>;
+            final args = settings.arguments as Map<String, dynamic>? ?? {};
             return MaterialPageRoute(
               builder: (_) => StreamPlayerPage(
-                channelId: args['channelId'],
-                streamerName: args['streamerName'],
+                streamId: args['streamId'], // Firestore doc id
+                hlsUrl: args['hlsUrl'], // HLS video stream URL
+                streamerName: args['streamerName'] ?? '',
+                title: args['title'] ?? '',
               ),
             );
           case '/categoryDetail':
-            final args = settings.arguments as Map<String, dynamic>;
+            final args = settings.arguments as Map<String, dynamic>? ?? {};
             return MaterialPageRoute(
               builder: (_) =>
-                  CategoryDetailPage(categoryName: args['categoryName']),
+                  CategoryDetailPage(categoryName: args['categoryName'] ?? ''),
             );
           case '/streamDetail':
-            final args = settings.arguments as Map<String, dynamic>;
+            final args = settings.arguments as Map<String, dynamic>? ?? {};
             return MaterialPageRoute(
               builder: (_) => StreamDetailPage(
-                streamerName: args['streamerName'],
-                streamTitle: args['streamTitle'],
-                category: args['category'],
-                viewers: args['viewers'],
-                thumbnail: args["thumbnail"],
+                streamerName: args['streamerName'] ?? '',
+                streamTitle: args['streamTitle'] ?? '',
+                category: args['category'] ?? '',
+                viewers: args['viewers'] ?? '',
+                thumbnail: args["thumbnail"] ?? '',
               ),
             );
           default:

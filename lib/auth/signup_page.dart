@@ -18,22 +18,28 @@ class _SignupPageState extends State<SignupPage> {
   Future<void> signup() async {
     setState(() => loading = true);
     try {
+      // ✅ Create user in Firebase Auth
       final userCredential = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(
         email: emailController.text.trim(),
         password: passwordController.text.trim(),
       );
 
+      final uid = userCredential.user!.uid;
+
       // ✅ Save extra user info in Firestore
-      await FirebaseFirestore.instance
-          .collection("users")
-          .doc(userCredential.user!.uid)
-          .set({
+      await FirebaseFirestore.instance.collection("users").doc(uid).set({
+        "uid": uid,
         "username": usernameController.text.trim(),
         "email": emailController.text.trim(),
-        "createdAt": DateTime.now(),
+        "bio": "", // placeholder for user bio
+        "profilePic": "", // placeholder for profile picture URL
+        "followers": 0,
+        "following": 0,
+        "createdAt": FieldValue.serverTimestamp(),
       });
 
+      // ✅ Navigate to main app
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, "/root");
     } on FirebaseAuthException catch (e) {
@@ -57,13 +63,16 @@ class _SignupPageState extends State<SignupPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text("Create Account",
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold)),
+              const Text(
+                "Create Account",
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 40),
 
+              // Username
               TextField(
                 controller: usernameController,
                 style: const TextStyle(color: Colors.white),
@@ -73,11 +82,13 @@ class _SignupPageState extends State<SignupPage> {
                   filled: true,
                   fillColor: Colors.grey[900],
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
 
+              // Email
               TextField(
                 controller: emailController,
                 style: const TextStyle(color: Colors.white),
@@ -87,11 +98,13 @@ class _SignupPageState extends State<SignupPage> {
                   filled: true,
                   fillColor: Colors.grey[900],
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
 
+              // Password
               TextField(
                 controller: passwordController,
                 obscureText: true,
@@ -102,18 +115,21 @@ class _SignupPageState extends State<SignupPage> {
                   filled: true,
                   fillColor: Colors.grey[900],
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
               const SizedBox(height: 30),
 
+              // Signup Button
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.purpleAccent,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 100, vertical: 14),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 100, vertical: 14),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 onPressed: loading ? null : signup,
                 child: loading
@@ -122,12 +138,15 @@ class _SignupPageState extends State<SignupPage> {
               ),
               const SizedBox(height: 20),
 
+              // Go to Login
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
                 },
-                child: const Text("Already have an account? Log in",
-                    style: TextStyle(color: Colors.white70)),
+                child: const Text(
+                  "Already have an account? Log in",
+                  style: TextStyle(color: Colors.white70),
+                ),
               ),
             ],
           ),

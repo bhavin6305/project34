@@ -1,10 +1,58 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
   @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  final user = FirebaseAuth.instance.currentUser;
+  Map<String, dynamic>? userData;
+  bool loading = true;
+
+  Future<void> loadUserData() async {
+    if (user == null) return;
+    final doc = await FirebaseFirestore.instance
+        .collection("users")
+        .doc(user!.uid)
+        .get();
+    setState(() {
+      userData = doc.data();
+      loading = false;
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    loadUserData();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (loading) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: CircularProgressIndicator(color: Colors.purpleAccent),
+        ),
+      );
+    }
+
+    if (userData == null) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Text("User not found",
+              style: TextStyle(color: Colors.white, fontSize: 18)),
+        ),
+      );
+    }
+
     final pastStreams = [
       {"title": "Epic Valorant Match", "views": "25K", "thumbnail": "https://picsum.photos/400/200?11"},
       {"title": "Cooking Live 🔥", "views": "12K", "thumbnail": "https://picsum.photos/400/200?12"},
@@ -13,7 +61,6 @@ class ProfilePage extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: Colors.black,
-
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -27,17 +74,15 @@ class ProfilePage extends StatelessWidget {
           ),
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.redAccent),
-            onPressed: () {
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              if (!mounted) return;
               Navigator.pushNamedAndRemoveUntil(
-                context,
-                '/login',
-                (route) => false,
-              );
+                  context, '/login', (route) => false);
             },
           ),
         ],
       ),
-
       body: SafeArea(
         child: SingleChildScrollView(
           child: Column(
@@ -54,15 +99,20 @@ class ProfilePage extends StatelessWidget {
                   ),
                 ),
                 padding: const EdgeInsets.all(3),
-                child: const CircleAvatar(
+                child: CircleAvatar(
                   radius: 55,
-                  backgroundImage: NetworkImage("https://picsum.photos/200"),
+                  backgroundImage: (userData!["profilePic"] != null &&
+                          userData!["profilePic"].isNotEmpty)
+                      ? NetworkImage(userData!["profilePic"])
+                      : const NetworkImage("https://picsum.photos/200"),
                 ),
               ),
               const SizedBox(height: 12),
-              const Text(
-                "StreamerX",
-                style: TextStyle(
+
+              // Username
+              Text(
+                userData!["username"] ?? "StreamerX",
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -70,11 +120,12 @@ class ProfilePage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 6),
-              const Text(
-                "@streamerx",
-                style: TextStyle(color: Colors.white54, fontSize: 15),
-              ),
 
+              // Email or handle
+              Text(
+                "@${userData!["username"] ?? "streamerx"}",
+                style: const TextStyle(color: Colors.white54, fontSize: 15),
+              ),
               const SizedBox(height: 20),
 
               // Followers / Following + Edit
@@ -83,12 +134,16 @@ class ProfilePage extends StatelessWidget {
                 children: [
                   GestureDetector(
                     onTap: () => Navigator.pushNamed(context, '/followers'),
-                    child: const _StatCard(label: "Followers", value: "120K"),
+                    child: _StatCard(
+                        label: "Followers",
+                        value: userData!["followers"]?.toString() ?? "0"),
                   ),
                   const SizedBox(width: 40),
                   GestureDetector(
                     onTap: () => Navigator.pushNamed(context, '/following'),
-                    child: const _StatCard(label: "Following", value: "150"),
+                    child: _StatCard(
+                        label: "Following",
+                        value: userData!["following"]?.toString() ?? "0"),
                   ),
                 ],
               ),
@@ -115,7 +170,6 @@ class ProfilePage extends StatelessWidget {
                   ),
                 ],
               ),
-
               const SizedBox(height: 30),
 
               // Past Streams
@@ -123,7 +177,8 @@ class ProfilePage extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
                   children: const [
-                    Icon(Icons.play_circle_fill, color: Colors.purpleAccent, size: 22),
+                    Icon(Icons.play_circle_fill,
+                        color: Colors.purpleAccent, size: 22),
                     SizedBox(width: 6),
                     Text(
                       "Past Streams",
@@ -159,7 +214,6 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
-  // Past Stream Card
   Widget _buildStreamTile(String title, String views, String thumbnail) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -182,7 +236,8 @@ class ProfilePage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(18)),
             child: Stack(
               children: [
                 Image.network(
@@ -195,18 +250,21 @@ class ProfilePage extends StatelessWidget {
                   bottom: 8,
                   right: 8,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.6),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.visibility, size: 16, color: Colors.redAccent),
+                        const Icon(Icons.visibility,
+                            size: 16, color: Colors.redAccent),
                         const SizedBox(width: 4),
                         Text(
                           "$views views",
-                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 12),
                         ),
                       ],
                     ),
@@ -265,7 +323,8 @@ class _ActionButton extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  const _ActionButton({required this.icon, required this.label, required this.onTap});
+  const _ActionButton(
+      {required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {

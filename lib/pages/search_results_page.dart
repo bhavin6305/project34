@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key});
+  final String? query;
+  const SearchPage({super.key, this.query});
 
   @override
   State<SearchPage> createState() => _SearchPageState();
