@@ -13,7 +13,6 @@ dependencies:
   cached_network_image: ^3.3.1
   video_player: ^2.9.1
   shimmer: ^3.0.0
-  agora_rtc_ng: ^6.0.0-beta.2
   google_sign_in: ^5.4.0
   # flutter_rtmp_publisher: ^0.3.2
   # flutter_live: ^0.0.6
@@ -28,8 +27,10 @@ dependencies:
   firebase_storage: ^13.0.0
   firebase_messaging: ^16.0.0
   permission_handler: ^12.0.1
-  agora_rtc_engine: ^6.5.2
+  agora_rtc_engine: ^6.5.3
   http: ^1.5.0
+  path_provider: ^2.1.1
+  camera: ^0.10.5+5
   # youtube_player_iframe: ^5.2.2
 
 dev_dependencies:

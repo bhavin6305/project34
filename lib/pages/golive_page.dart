@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:camera/camera.dart';
+import 'package:twitch/services/agora_service.dart';
 
 class GoLivePage extends StatefulWidget {
   const GoLivePage({super.key});
@@ -15,9 +18,16 @@ class _GoLivePageState extends State<GoLivePage> {
   static const platform = MethodChannel('com.yourapp.rtmp/control');
   final TextEditingController _titleController = TextEditingController();
   bool _isStreaming = false;
+  bool _isRecording = false;
 
   // Change this to your local server IP (from ipconfig)
   static const String serverIp = "172.16.0.148";
+
+  Future<void> _requestPermissions() async {
+    await Permission.camera.request();
+    await Permission.microphone.request();
+    await Permission.storage.request();
+  }
 
   Future<void> _startBroadcast() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -55,6 +65,11 @@ class _GoLivePageState extends State<GoLivePage> {
       });
       if (res == 'ok') {
         setState(() => _isStreaming = true);
+        // Request permissions and start recording
+        await _requestPermissions();
+        final filePath = await RecordingService.getRecordingFilePath(uid);
+        await RecordingService.startRecording(filePath);
+        setState(() => _isRecording = true);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Native startStream result: $res')),
@@ -75,6 +90,9 @@ class _GoLivePageState extends State<GoLivePage> {
     try {
       final res = await platform.invokeMethod('stopStream');
       if (res == 'ok') {
+        // Stop recording
+        await RecordingService.stopRecording();
+        setState(() => _isRecording = false);
         // update Firestore
         await FirebaseFirestore.instance.collection('streams').doc(uid).update({
           'isLive': false,
@@ -95,6 +113,7 @@ class _GoLivePageState extends State<GoLivePage> {
   @override
   void dispose() {
     _titleController.dispose();
+    RecordingService.dispose();
     super.dispose();
   }
 
@@ -115,6 +134,17 @@ class _GoLivePageState extends State<GoLivePage> {
                 ? Column(
                     children: [
                       const Text('You are live!'),
+                      if (_isRecording) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.circle, color: Colors.red, size: 12),
+                            SizedBox(width: 4),
+                            Text('Recording...'),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       ElevatedButton.icon(
                         onPressed: _stopBroadcast,
